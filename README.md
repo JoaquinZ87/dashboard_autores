@@ -2,7 +2,7 @@
 title: Dashboard Bibliográfico UNSAM
 emoji: 📊
 colorFrom: blue
-colorTo: orange
+colorTo: yellow
 sdk: gradio
 sdk_version: 5.49.0
 app_file: app.py
