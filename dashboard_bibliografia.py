@@ -8,12 +8,14 @@ Abre en localhost:7861
 """
 
 import os
+import re
 import warnings
 
 import gradio as gr
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from collections import Counter
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -28,6 +30,8 @@ COL_CARRERA = "Carrera en la que se oferta la materia: Sociología (S), Antropol
 COL_ANIO_SOC = "Año en el plan de estudios de sociología (1, 2, 3, 4, 5)"
 COL_ANIO_ANTRO = "Año en el plan de estudios de antropología (1, 2, 3, 4, 5)"
 COL_MATERIA = "Nombre de la materia en el plan de estudios"
+COL_FUND = "Fundamentación (se copia tal cómo está en el programa)"
+COL_OBJ = "Objetivos (se copia tal cómo está en el programa)"
 
 # ─── Épocas ───────────────────────────────────────────────────────────────────
 EPOCH_BINS = [-9999, 1880, 1920, 1960, 1980, 2000, 9999]
@@ -423,6 +427,217 @@ def chart_disciplina(df, compacto=False):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  ANÁLISIS DE TEXTO (Fundamentación / Objetivos)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Stopwords español extendidas con términos académicos genéricos
+_STOPWORDS_EXTRA = {
+    "así", "además", "cada", "cual", "sino", "partir", "través", "dentro",
+    "entre", "sobre", "desde", "hacia", "hasta", "según", "durante", "ante",
+    "tras", "mediante", "respecto", "acerca", "forma", "modo", "manera",
+    "puede", "pueden", "poder", "hacer", "hace", "ser", "sido", "siendo",
+    "tiene", "tienen", "tener", "haber", "hay", "está", "están", "estar",
+    "también", "solo", "sólo", "bien", "dos", "tres", "gran", "mayor",
+    "menor", "parte", "vez", "veces", "año", "años", "cuenta",
+    # Académicos genéricos
+    "materia", "programa", "curso", "clase", "clases", "estudiantes",
+    "alumno", "alumnos", "alumna", "alumnas", "docente", "cátedra",
+    "bibliografía", "texto", "textos", "lectura", "lecturas", "unidad",
+    "trabajo", "trabajos", "tema", "temas", "contenido", "contenidos",
+    "propone", "propuesta", "perspectiva", "perspectivas", "enfoque",
+    "abordaje", "permite", "permiten", "busca", "objetivo", "objetivos",
+    "general", "generales", "específico", "específicos", "particular",
+    "diferentes", "diferente", "distintos", "distintas", "diversos",
+    "diversas", "principales", "principal", "nuevo", "nueva", "nuevos",
+    "nuevas", "propio", "propia", "propios", "mismo", "misma",
+}
+
+
+def _get_stopwords():
+    """Carga stopwords de NLTK + extras."""
+    try:
+        from nltk.corpus import stopwords
+        sw = set(stopwords.words("spanish"))
+    except LookupError:
+        import nltk
+        nltk.download("stopwords", quiet=True)
+        from nltk.corpus import stopwords
+        sw = set(stopwords.words("spanish"))
+    return sw | _STOPWORDS_EXTRA
+
+
+def _get_stemmer():
+    from nltk.stem import SnowballStemmer
+    return SnowballStemmer("spanish")
+
+
+def _tokenizar(texto, stopwords_set, stemmer):
+    """Tokeniza, limpia, quita stopwords y aplica stemming."""
+    texto = re.sub(r"[^\w\sáéíóúüñ]", " ", texto.lower())
+    texto = re.sub(r"\d+", " ", texto)
+    tokens = texto.split()
+    tokens = [t for t in tokens if len(t) > 2 and t not in stopwords_set]
+    return [stemmer.stem(t) for t in tokens]
+
+
+def _tokens_a_palabras(textos_originales, stopwords_set, stemmer):
+    """Devuelve Counter de stems y un mapeo stem→palabra más frecuente."""
+    stem_counter = Counter()
+    stem_to_word = {}  # stem → {palabra: count}
+    for texto in textos_originales:
+        if not isinstance(texto, str):
+            continue
+        texto_limpio = re.sub(r"[^\w\sáéíóúüñ]", " ", texto.lower())
+        texto_limpio = re.sub(r"\d+", " ", texto_limpio)
+        tokens = texto_limpio.split()
+        tokens = [t for t in tokens if len(t) > 2 and t not in stopwords_set]
+        for t in tokens:
+            stem = stemmer.stem(t)
+            stem_counter[stem] += 1
+            if stem not in stem_to_word:
+                stem_to_word[stem] = Counter()
+            stem_to_word[stem][t] += 1
+    # Mapear cada stem a la palabra original más común
+    best_word = {stem: wc.most_common(1)[0][0] for stem, wc in stem_to_word.items()}
+    return stem_counter, best_word
+
+
+def _obtener_textos_campo(df_master, carrera, anio_plan, campo_col):
+    """Filtra materias únicas y devuelve los textos del campo indicado."""
+    filtrado = df_master.copy()
+    if carrera == "Sociología":
+        filtrado = filtrado[filtrado[COL_CARRERA].isin(["S", "SA"])]
+    elif carrera == "Antropología":
+        filtrado = filtrado[filtrado[COL_CARRERA].isin(["A", "SA"])]
+    if anio_plan and anio_plan != "Todos":
+        col_anio = COL_ANIO_SOC if carrera == "Sociología" else COL_ANIO_ANTRO
+        filtrado = filtrado[filtrado[col_anio].astype(str).str.strip() == anio_plan]
+    # Una sola entrada por materia (los campos son por programa, no por texto)
+    materias = filtrado.drop_duplicates(subset=[COL_MATERIA])
+    textos = materias[campo_col].dropna().tolist()
+    return textos
+
+
+def chart_palabras_frecuentes(textos, titulo, top_n=25):
+    """Gráfico de barras horizontales con las palabras más frecuentes."""
+    if not textos:
+        return _fig_vacia(titulo)
+    sw = _get_stopwords()
+    stemmer = _get_stemmer()
+    stem_counter, best_word = _tokens_a_palabras(textos, sw, stemmer)
+    if not stem_counter:
+        return _fig_vacia(titulo)
+
+    top = stem_counter.most_common(top_n)
+    palabras = [best_word[stem] for stem, _ in top]
+    counts = [c for _, c in top]
+    total = sum(counts)
+
+    # Invertir para que la más frecuente quede arriba
+    palabras = palabras[::-1]
+    counts = counts[::-1]
+    n = len(palabras)
+    colors = _gradiente(n, 45, 215, 255, 0, 61, 122)
+
+    fig = go.Figure(go.Bar(
+        x=counts, y=palabras, orientation="h",
+        marker=dict(color=colors, line=dict(width=0), cornerradius=4),
+        text=[f"  {v}  ({v/total*100:.1f}%)" for v in counts],
+        textposition="outside",
+        textfont=dict(size=11, color="#555"),
+        hovertemplate="<b>%{y}</b><br>Frecuencia: %{x}<br>%{customdata:.1f}%<extra></extra>",
+        customdata=[v / total * 100 for v in counts],
+    ))
+    h = max(400, n * 28 + 100)
+    layout = {**LAYOUT_BASE, "title": titulo, "height": h,
+              "xaxis": dict(title="", showgrid=False, showticklabels=False),
+              "yaxis": dict(title="")}
+    fig.update_layout(**layout)
+    return fig
+
+
+def chart_topics(textos_fund, textos_obj, n_topics=5, n_words=8):
+    """Topic modeling (LDA) sobre fundamentación + objetivos combinados."""
+    textos = []
+    for t in (textos_fund or []) + (textos_obj or []):
+        if isinstance(t, str) and len(t.strip()) > 20:
+            textos.append(t)
+    if len(textos) < 3:
+        return _fig_vacia("Topic Modeling")
+
+    sw = _get_stopwords()
+    stemmer = _get_stemmer()
+
+    docs_tokens = [_tokenizar(t, sw, stemmer) for t in textos]
+    docs_tokens = [d for d in docs_tokens if len(d) > 3]
+    if len(docs_tokens) < 3:
+        return _fig_vacia("Topic Modeling")
+
+    from sklearn.feature_extraction.text import CountVectorizer
+    from sklearn.decomposition import LatentDirichletAllocation
+
+    # Reconstruir documentos como strings de stems
+    docs_str = [" ".join(d) for d in docs_tokens]
+
+    vectorizer = CountVectorizer(max_features=500, max_df=0.9, min_df=2)
+    try:
+        dtm = vectorizer.fit_transform(docs_str)
+    except ValueError:
+        return _fig_vacia("Topic Modeling (vocabulario insuficiente)")
+
+    feature_names = vectorizer.get_feature_names_out()
+
+    # Mapear stems a palabras originales
+    _, best_word = _tokens_a_palabras(textos, sw, stemmer)
+
+    n_topics = min(n_topics, max(2, dtm.shape[0] // 3))
+    lda = LatentDirichletAllocation(n_components=n_topics, random_state=42,
+                                     max_iter=30, learning_method="online")
+    lda.fit(dtm)
+
+    # Construir gráfico: un grupo de barras por topic
+    fig = go.Figure()
+    topic_colors = ["#003D7A", "#1976D2", "#2DD7FF", "#F89B34", "#1A237E",
+                    "#4CAF50", "#E91E63", "#FF9800"]
+
+    for topic_idx, topic in enumerate(lda.components_):
+        top_indices = topic.argsort()[-n_words:][::-1]
+        words = []
+        weights = []
+        for i in top_indices:
+            stem = feature_names[i]
+            word = best_word.get(stem, stem)
+            words.append(word)
+            weights.append(topic[i])
+        # Normalizar pesos
+        total_w = sum(weights)
+        weights = [w / total_w * 100 for w in weights]
+
+        color = topic_colors[topic_idx % len(topic_colors)]
+        fig.add_trace(go.Bar(
+            y=[f"T{topic_idx+1}: {words[0]}" for _ in words],
+            x=weights,
+            orientation="h",
+            name=f"Tema {topic_idx+1}",
+            marker=dict(color=color, cornerradius=3),
+            text=[f"{w}" for w in words],
+            textposition="inside",
+            textfont=dict(color="white", size=11),
+            hovertemplate=f"<b>Tema {topic_idx+1}</b><br>" + "%{text}: %{x:.1f}%<extra></extra>",
+        ))
+
+    h = max(350, n_topics * 80 + 100)
+    layout = {**LAYOUT_BASE,
+              "title": f"Topic Modeling — {n_topics} temas (Fundamentación + Objetivos)",
+              "height": h, "barmode": "stack",
+              "xaxis": dict(title="Peso relativo (%)", showgrid=True, gridcolor="#E8EAF6"),
+              "yaxis": dict(title=""),
+              "showlegend": False}
+    fig.update_layout(**layout)
+    return fig
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  HELPERS
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -494,6 +709,22 @@ def callback_comparar(carrera_a, anio_a, materias_a, carrera_b, anio_b, materias
         *figs_b, _generar_resumen(df_b, label_b),
         gr.Dropdown(choices=mat_disp_b, value=materias_b if materias_b else None),
     )
+
+
+def callback_texto(carrera, anio_plan):
+    """Tab Análisis de Texto: palabras frecuentes + topic modeling."""
+    master, _, _ = cargar_datos()
+    textos_fund = _obtener_textos_campo(master, carrera, anio_plan, COL_FUND)
+    textos_obj = _obtener_textos_campo(master, carrera, anio_plan, COL_OBJ)
+    label = carrera
+    if anio_plan and anio_plan != "Todos":
+        label += f" · Año {anio_plan}"
+    n_materias = len(textos_fund) or len(textos_obj)
+    resumen = f"### {label}\nAnalizando textos de **{n_materias}** materias"
+    fig_fund = chart_palabras_frecuentes(textos_fund, f"Palabras más frecuentes — Fundamentación")
+    fig_obj = chart_palabras_frecuentes(textos_obj, f"Palabras más frecuentes — Objetivos")
+    fig_topics = chart_topics(textos_fund, textos_obj)
+    return resumen, fig_fund, fig_obj, fig_topics
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -703,6 +934,38 @@ def crear_dashboard():
                     inp.change(callback_comparar, comp_inputs, comp_outputs)
                 # Cargar gráficos iniciales al abrir
                 demo.load(callback_comparar, comp_inputs, comp_outputs)
+
+            # ══════════════════════ TAB ANÁLISIS DE TEXTO ══════════════════════
+            with gr.Tab("Análisis de Texto"):
+                gr.Markdown("Análisis de las secciones **Fundamentación** y **Objetivos** "
+                            "de los programas de las materias.")
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        txt_carrera = gr.Radio(
+                            choices=["Sociología", "Antropología"],
+                            value="Sociología", label="Carrera",
+                        )
+                    with gr.Column(scale=1):
+                        txt_anio = gr.Dropdown(
+                            choices=ANIOS_CHOICES, value="Todos",
+                            label="Año del plan",
+                        )
+
+                txt_resumen = gr.Markdown(elem_classes=["resumen-box"])
+
+                with gr.Row():
+                    with gr.Column():
+                        plot_palabras_fund = gr.Plot(label="Fundamentación")
+                    with gr.Column():
+                        plot_palabras_obj = gr.Plot(label="Objetivos")
+
+                plot_topics = gr.Plot(label="Topic Modeling")
+
+                txt_inputs = [txt_carrera, txt_anio]
+                txt_outputs = [txt_resumen, plot_palabras_fund, plot_palabras_obj, plot_topics]
+                txt_carrera.change(callback_texto, txt_inputs, txt_outputs)
+                txt_anio.change(callback_texto, txt_inputs, txt_outputs)
+                demo.load(callback_texto, txt_inputs, txt_outputs)
 
     return demo
 
