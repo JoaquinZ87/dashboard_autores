@@ -193,15 +193,17 @@ def construir_tabla_expandida():
     meta_j["autor_lc"] = meta_j["nombre_autor"].str.strip().str.lower()
     meta_j = meta_j.drop_duplicates(subset=["autor_lc"])
 
-    meta_cols = ["autor_lc", "genero", "region", "disciplina", "institucion"]
+    meta_cols = ["autor_lc", "genero", "region", "pais_nacimiento", "disciplina", "institucion"]
     if "pais_institucion" in meta_j.columns:
         meta_cols.append("pais_institucion")
+    meta_cols = [c for c in meta_cols if c in meta_j.columns]
 
     df = df.merge(meta_j[meta_cols], on="autor_lc", how="left")
 
-    for col in ["genero", "region", "disciplina", "institucion"]:
-        df[col] = df[col].fillna("Sin datos")
-        df[col] = df[col].replace({"desconocido": "Sin datos", "": "Sin datos"})
+    for col in ["genero", "region", "pais_nacimiento", "disciplina", "institucion"]:
+        if col in df.columns:
+            df[col] = df[col].fillna("Sin datos")
+            df[col] = df[col].replace({"desconocido": "Sin datos", "": "Sin datos"})
 
     if "pais_institucion" in df.columns:
         df["pais_institucion"] = df["pais_institucion"].fillna("Sin datos")
@@ -384,35 +386,123 @@ def _chart_barras_h(series, titulo, compacto=False, max_items=15,
     return fig
 
 
-def chart_region(df, compacto=False):
+def _chart_barras_h_dual(series_a, series_b, titulo, label_a, label_b,
+                         compacto=False, max_items=15,
+                         color_from_a=(45, 215, 255), color_to_a=(0, 61, 122),
+                         color_from_b=(45, 215, 255), color_to_b=(0, 61, 122)):
+    """Gráfico de barras H con dos vistas alternables por botones Plotly."""
+    conteo_a = series_a.value_counts().head(max_items)
+    conteo_b = series_b.value_counts().head(max_items)
+    if conteo_a.empty and conteo_b.empty:
+        return _fig_vacia(titulo, compacto)
+
+    fig = go.Figure()
+
+    # ─── Vista A (visible por defecto) ───
+    if not conteo_a.empty:
+        total_a = conteo_a.sum()
+        ca = conteo_a.iloc[::-1]
+        na = len(ca)
+        colors_a = _gradiente(na, *color_from_a, *color_to_a)
+        fig.add_trace(go.Bar(
+            x=ca.values, y=ca.index, orientation="h",
+            marker=dict(color=colors_a, line=dict(width=0), cornerradius=4),
+            text=[f"  {v}  ({v/total_a*100:.1f}%)" for v in ca.values],
+            textposition="outside", cliponaxis=False,
+            textfont=dict(size=10 if compacto else 11, color="#555"),
+            hovertemplate="<b>%{y}</b><br>Textos: %{x}<br>%{customdata:.1f}%<extra></extra>",
+            customdata=[v / total_a * 100 for v in ca.values],
+            visible=True,
+        ))
+        max_a = ca.values.max()
+    else:
+        na = 0
+        max_a = 1
+
+    # ─── Vista B (oculta) ───
+    if not conteo_b.empty:
+        total_b = conteo_b.sum()
+        cb = conteo_b.iloc[::-1]
+        nb = len(cb)
+        colors_b = _gradiente(nb, *color_from_b, *color_to_b)
+        fig.add_trace(go.Bar(
+            x=cb.values, y=cb.index, orientation="h",
+            marker=dict(color=colors_b, line=dict(width=0), cornerradius=4),
+            text=[f"  {v}  ({v/total_b*100:.1f}%)" for v in cb.values],
+            textposition="outside", cliponaxis=False,
+            textfont=dict(size=10 if compacto else 11, color="#555"),
+            hovertemplate="<b>%{y}</b><br>Textos: %{x}<br>%{customdata:.1f}%<extra></extra>",
+            customdata=[v / total_b * 100 for v in cb.values],
+            visible=False,
+        ))
+        max_b = cb.values.max()
+    else:
+        nb = 0
+        max_b = 1
+
+    n_max = max(na, nb, 1)
+    h = max(300 if compacto else 350, n_max * (24 if compacto else 32) + 100)
+
+    layout = {**LAYOUT_BASE, "title": titulo, "height": h,
+              "xaxis": dict(title="", showgrid=False, showticklabels=False,
+                            range=[0, max_a * 1.35]),
+              "yaxis": dict(title=""),
+              "updatemenus": [dict(
+                  type="buttons",
+                  direction="right",
+                  x=1.0, xanchor="right",
+                  y=1.12, yanchor="top",
+                  buttons=[
+                      dict(label=f"  {label_a}  ",
+                           method="update",
+                           args=[{"visible": [True, False]},
+                                 {"xaxis.range": [0, max_a * 1.35]}]),
+                      dict(label=f"  {label_b}  ",
+                           method="update",
+                           args=[{"visible": [False, True]},
+                                 {"xaxis.range": [0, max_b * 1.35]}]),
+                  ],
+                  bgcolor="#E8EAF6",
+                  activecolor="#2196F3",
+                  font=dict(size=11, color="#333"),
+              )]}
+    if compacto:
+        _layout_compacto(layout)
+        layout["height"] = h
+        layout["updatemenus"] = layout.get("updatemenus")
+    fig.update_layout(**layout)
+    return fig
+
+
+def chart_origen_autor(df, compacto=False):
+    """Origen del autor: toggle Regiones / Países."""
     if df.empty:
-        return _fig_vacia("Región del autor/a", compacto)
+        return _fig_vacia("Origen del autor/a", compacto)
     textos = df.drop_duplicates(subset=["Autores", "Nombre_Publicacion", "Titulo", "autor_lc"])
-    return _chart_barras_h(textos["region"], "Región del autor/a", compacto)
+    regiones = textos["region"]
+    paises = textos["pais_nacimiento"] if "pais_nacimiento" in textos.columns else textos["region"]
+    return _chart_barras_h_dual(
+        regiones, paises, "Origen del autor/a",
+        "Regiones", "Países", compacto,
+    )
 
 
-def chart_region_instituciones(df, compacto=False):
+def chart_origen_inst(df, compacto=False):
+    """Origen de las instituciones: toggle Regiones / Países."""
     if df.empty or "pais_institucion" not in df.columns:
-        return _fig_vacia("País de las instituciones", compacto)
+        return _fig_vacia("Origen de las instituciones", compacto)
     textos = df.drop_duplicates(subset=["Autores", "Nombre_Publicacion", "Titulo", "autor_lc"])
     paises = textos["pais_institucion"].str.split(",").explode().str.strip()
     paises = paises[paises != "Sin datos"]
     if paises.empty:
-        return _fig_vacia("País de las instituciones", compacto)
-    return _chart_barras_h(paises, "País de las instituciones", compacto,
-                           color_from=(248, 155, 52), color_to=(0, 61, 122))
-
-
-def chart_region_inst(df, compacto=False):
-    if df.empty or "pais_institucion" not in df.columns:
-        return _fig_vacia("Región de las instituciones", compacto)
-    textos = df.drop_duplicates(subset=["Autores", "Nombre_Publicacion", "Titulo", "autor_lc"])
-    paises = textos["pais_institucion"].str.split(",").explode().str.strip()
-    paises = paises[paises != "Sin datos"]
-    if paises.empty:
-        return _fig_vacia("Región de las instituciones", compacto)
+        return _fig_vacia("Origen de las instituciones", compacto)
     regiones = paises.map(PAIS_REGION).fillna("Otro")
-    return _chart_barras_h(regiones, "Región de las instituciones", compacto)
+    return _chart_barras_h_dual(
+        regiones, paises, "Origen de las instituciones",
+        "Regiones", "Países", compacto,
+        color_from_a=(248, 155, 52), color_to_a=(0, 61, 122),
+        color_from_b=(248, 155, 52), color_to_b=(0, 61, 122),
+    )
 
 
 def chart_institucion(df, compacto=False):
@@ -932,9 +1022,8 @@ def _generar_graficos(df, compacto=False):
     return (
         chart_epocas(df, compacto),
         chart_genero(df, compacto),
-        chart_region(df, compacto),
-        chart_region_instituciones(df, compacto),
-        chart_region_inst(df, compacto),
+        chart_origen_autor(df, compacto),
+        chart_origen_inst(df, compacto),
         chart_institucion(df, compacto),
         chart_disciplina(df, compacto),
     )
@@ -1184,23 +1273,19 @@ def crear_dashboard():
 
                 with gr.Row():
                     with gr.Column():
-                        plot_region = gr.Plot(label="Región autores")
+                        plot_origen_autor = gr.Plot(label="Origen autores")
                     with gr.Column():
-                        plot_region_inst = gr.Plot(label="País instituciones")
+                        plot_origen_inst = gr.Plot(label="Origen instituciones")
 
                 with gr.Row():
-                    with gr.Column():
-                        plot_region_inst_reg = gr.Plot(label="Región instituciones")
                     with gr.Column():
                         plot_institucion = gr.Plot(label="Instituciones")
-
-                with gr.Row():
                     with gr.Column():
                         plot_disciplina = gr.Plot(label="Disciplina")
 
                 dash_outputs = [
-                    plot_epocas, plot_genero, plot_region, plot_region_inst,
-                    plot_region_inst_reg, plot_institucion, plot_disciplina,
+                    plot_epocas, plot_genero, plot_origen_autor, plot_origen_inst,
+                    plot_institucion, plot_disciplina,
                     resumen_md, filtro_materias,
                 ]
                 dash_inputs = [filtro_carrera, filtro_anio, filtro_materias]
@@ -1231,9 +1316,8 @@ def crear_dashboard():
                         comp_resumen_a = gr.Markdown(elem_classes=["resumen-box"])
                         comp_epocas_a = gr.Plot()
                         comp_genero_a = gr.Plot()
-                        comp_region_a = gr.Plot()
-                        comp_region_inst_a = gr.Plot()
-                        comp_region_inst_reg_a = gr.Plot()
+                        comp_origen_autor_a = gr.Plot()
+                        comp_origen_inst_a = gr.Plot()
                         comp_inst_a = gr.Plot()
                         comp_disc_a = gr.Plot()
 
@@ -1255,9 +1339,8 @@ def crear_dashboard():
                         comp_resumen_b = gr.Markdown(elem_classes=["resumen-box"])
                         comp_epocas_b = gr.Plot()
                         comp_genero_b = gr.Plot()
-                        comp_region_b = gr.Plot()
-                        comp_region_inst_b = gr.Plot()
-                        comp_region_inst_reg_b = gr.Plot()
+                        comp_origen_autor_b = gr.Plot()
+                        comp_origen_inst_b = gr.Plot()
                         comp_inst_b = gr.Plot()
                         comp_disc_b = gr.Plot()
 
@@ -1266,13 +1349,11 @@ def crear_dashboard():
                     comp_carrera_b, comp_anio_b, comp_materias_b,
                 ]
                 comp_outputs = [
-                    comp_epocas_a, comp_genero_a, comp_region_a,
-                    comp_region_inst_a, comp_region_inst_reg_a,
-                    comp_inst_a, comp_disc_a,
+                    comp_epocas_a, comp_genero_a, comp_origen_autor_a,
+                    comp_origen_inst_a, comp_inst_a, comp_disc_a,
                     comp_resumen_a, comp_materias_a,
-                    comp_epocas_b, comp_genero_b, comp_region_b,
-                    comp_region_inst_b, comp_region_inst_reg_b,
-                    comp_inst_b, comp_disc_b,
+                    comp_epocas_b, comp_genero_b, comp_origen_autor_b,
+                    comp_origen_inst_b, comp_inst_b, comp_disc_b,
                     comp_resumen_b, comp_materias_b,
                 ]
 
