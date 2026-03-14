@@ -279,6 +279,7 @@ def chart_epocas(df, compacto=False):
         marker=dict(color=PALETA_EPOCAS, line=dict(width=0), cornerradius=6),
         text=pct_texts,
         textposition="outside",
+        cliponaxis=False,
         textfont=dict(size=11 if compacto else 12, color="#333"),
         hovertext=hover_texts, hoverinfo="text",
     ))
@@ -342,14 +343,17 @@ def _chart_barras_h(series, titulo, compacto=False, max_items=15,
         marker=dict(color=colors, line=dict(width=0), cornerradius=4),
         text=[f"  {v}  ({v/total*100:.1f}%)" for v in conteo.values],
         textposition="outside",
+        cliponaxis=False,
         textfont=dict(size=10 if compacto else 11, color="#555"),
         hovertemplate="<b>%{y}</b><br>Textos: %{x}<br>%{customdata:.1f}%<extra></extra>",
         customdata=[v / total * 100 if total > 0 else 0 for v in conteo.values],
     ))
 
+    max_val = conteo.values.max()
     h = max(300 if compacto else 350, n * (24 if compacto else 32) + 100)
     layout = {**LAYOUT_BASE, "title": titulo, "height": h,
-              "xaxis": dict(title="", showgrid=False, showticklabels=False),
+              "xaxis": dict(title="", showgrid=False, showticklabels=False,
+                            range=[0, max_val * 1.35]),
               "yaxis": dict(title="")}
     if compacto:
         _layout_compacto(layout)
@@ -413,15 +417,18 @@ def chart_disciplina(df, compacto=False):
         marker=dict(color=colors, line=dict(width=0), cornerradius=4),
         text=[f"  {v}  ({v/total*100:.1f}%)" for v in conteo.values],
         textposition="outside",
+        cliponaxis=False,
         textfont=dict(size=10 if compacto else 11, color="#555"),
         hovertemplate="<b>%{y}</b><br>Textos: %{x}<br>%{customdata:.1f}%<extra></extra>",
         customdata=[v / total * 100 if total > 0 else 0 for v in conteo.values],
     ))
 
+    max_val = conteo.values.max()
     nota = f"  (+ {sin_datos_n} sin datos)" if sin_datos_n > 0 else ""
     h = max(300 if compacto else 350, n * (24 if compacto else 32) + 100)
     layout = {**LAYOUT_BASE, "title": f"Disciplina del autor/a{nota}", "height": h,
-              "xaxis": dict(title="", showgrid=False, showticklabels=False),
+              "xaxis": dict(title="", showgrid=False, showticklabels=False,
+                            range=[0, max_val * 1.35]),
               "yaxis": dict(title="")}
     if compacto:
         _layout_compacto(layout)
@@ -563,13 +570,16 @@ def chart_palabras_frecuentes(textos, titulo, top_n=25):
         marker=dict(color=colors, line=dict(width=0), cornerradius=4),
         text=[f"  {v}  ({v/total*100:.1f}%)" for v in counts],
         textposition="outside",
+        cliponaxis=False,
         textfont=dict(size=11, color="#555"),
         hovertemplate="<b>%{y}</b><br>Frecuencia: %{x}<br>%{customdata:.1f}%<extra></extra>",
         customdata=[v / total * 100 for v in counts],
     ))
+    max_val = max(counts)
     h = max(400, n * 28 + 100)
     layout = {**LAYOUT_BASE, "title": titulo, "height": h,
-              "xaxis": dict(title="", showgrid=False, showticklabels=False),
+              "xaxis": dict(title="", showgrid=False, showticklabels=False,
+                            range=[0, max_val * 1.35]),
               "yaxis": dict(title="")}
     fig.update_layout(**layout)
     return fig
@@ -652,11 +662,14 @@ def chart_topics(topics_data, labels=None):
             marker=dict(color=color, line=dict(width=0), cornerradius=3),
             text=[f"  {w:.2f}" for w in td["weights"]],
             textposition="outside",
+            cliponaxis=False,
             textfont=dict(size=10, color="#555"),
             hovertemplate="<b>%{y}</b><br>Peso: %{x:.3f}<extra></extra>",
             showlegend=False,
         ), row=topic_idx + 1, col=1)
-        fig.update_xaxes(showticklabels=False, showgrid=False, row=topic_idx + 1, col=1)
+        max_w = max(td["weights"]) if td["weights"] else 1
+        fig.update_xaxes(showticklabels=False, showgrid=False,
+                         range=[0, max_w * 1.35], row=topic_idx + 1, col=1)
         fig.update_yaxes(tickfont=dict(size=11), row=topic_idx + 1, col=1)
 
     h = n_topics * 180 + 80
@@ -816,6 +829,7 @@ def chart_paginas(df_master, carrera, anio_plan, materias=None):
         marker=dict(color=colors, line=dict(width=0), cornerradius=6),
         text=[f"{int(v):,}" if v >= 10 else f"{v:.1f}" for v in values],
         textposition="outside",
+        cliponaxis=False,
         textfont=dict(size=14, color="#333"),
         hovertemplate="<b>%{x}</b><br>%{y:,.0f}<extra></extra>",
     ))
