@@ -101,7 +101,7 @@ LAYOUT_BASE = dict(
     font=dict(family="Calibri, sans-serif", size=13, color="#333"),
     title_font=dict(size=17, color=COLORES["azul_profundo"]),
     title_x=0.5,
-    margin=dict(l=20, r=20, t=55, b=20),
+    margin=dict(l=20, r=80, t=55, b=20),
     hoverlabel=dict(
         bgcolor="#1A237E", font_size=13, font_color="white",
         font_family="Calibri, sans-serif", bordercolor="#2DD7FF",
@@ -235,7 +235,7 @@ def _layout_compacto(layout):
     layout["height"] = layout.get("height", 300)
     layout["font"] = dict(family="Calibri, sans-serif", size=11, color="#333")
     layout["title_font"] = dict(size=14, color=COLORES["azul_profundo"])
-    layout["margin"] = dict(l=15, r=15, t=45, b=15)
+    layout["margin"] = dict(l=15, r=80, t=45, b=15)
     return layout
 
 
@@ -664,7 +664,7 @@ def chart_topics(topics_data, labels=None):
         **{k: v for k, v in LAYOUT_BASE.items() if k not in ("margin",)},
         title=f"Topic Modeling — {n_topics} temas (Fundamentación + Objetivos)",
         height=h,
-        margin=dict(l=20, r=20, t=60, b=20),
+        margin=dict(l=20, r=80, t=60, b=20),
     )
     for ann in fig.layout.annotations:
         ann.font = dict(size=13, color=COLORES["azul_oscuro"])
