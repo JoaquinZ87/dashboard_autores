@@ -95,6 +95,28 @@ PALETA_GENERO = {
     "Sin datos": "#E0E0E0",
 }
 
+PAIS_REGION = {
+    'Argentina': 'Argentina',
+    'Brasil': 'Latinoamérica', 'México': 'Latinoamérica', 'Chile': 'Latinoamérica',
+    'Colombia': 'Latinoamérica', 'Perú': 'Latinoamérica', 'Uruguay': 'Latinoamérica',
+    'Venezuela': 'Latinoamérica', 'Bolivia': 'Latinoamérica', 'Ecuador': 'Latinoamérica',
+    'Costa Rica': 'Latinoamérica', 'Panamá': 'Latinoamérica', 'Paraguay': 'Latinoamérica',
+    'Cuba': 'Caribe', 'Haití': 'Caribe', 'Jamaica': 'Caribe',
+    'Martinica': 'Caribe', 'Puerto Rico': 'Caribe',
+    'Estados Unidos': 'Anglosajón', 'Reino Unido': 'Anglosajón', 'Canadá': 'Anglosajón',
+    'Australia': 'Anglosajón', 'Nueva Zelanda': 'Anglosajón', 'Inglaterra': 'Anglosajón',
+    'Escocia': 'Anglosajón', 'Irlanda': 'Anglosajón',
+    'Francia': 'Europa', 'Alemania': 'Europa', 'Italia': 'Europa', 'España': 'Europa',
+    'Países Bajos': 'Europa', 'Bélgica': 'Europa', 'Suiza': 'Europa', 'Austria': 'Europa',
+    'Portugal': 'Europa', 'Grecia': 'Europa', 'Polonia': 'Europa', 'Hungría': 'Europa',
+    'Rumania': 'Europa', 'Rumanía': 'Europa', 'Bulgaria': 'Europa', 'Suecia': 'Europa',
+    'Dinamarca': 'Europa', 'Noruega': 'Europa', 'Islandia': 'Europa', 'Rusia': 'Europa',
+    'India': 'Asia', 'China': 'Asia', 'Japón': 'Asia', 'Israel': 'Asia',
+    'Indonesia': 'Asia', 'Singapur': 'Asia',
+    'Argelia': 'África', 'Sudáfrica': 'África', 'Túnez': 'África',
+    'Kenia': 'África', 'Tanzania': 'África', 'Uganda': 'África',
+}
+
 # ─── Layout base Plotly ──────────────────────────────────────────────────────
 LAYOUT_BASE = dict(
     template="plotly_white",
@@ -379,6 +401,18 @@ def chart_region_instituciones(df, compacto=False):
         return _fig_vacia("País de las instituciones", compacto)
     return _chart_barras_h(paises, "País de las instituciones", compacto,
                            color_from=(248, 155, 52), color_to=(0, 61, 122))
+
+
+def chart_region_inst(df, compacto=False):
+    if df.empty or "pais_institucion" not in df.columns:
+        return _fig_vacia("Región de las instituciones", compacto)
+    textos = df.drop_duplicates(subset=["Autores", "Nombre_Publicacion", "Titulo", "autor_lc"])
+    paises = textos["pais_institucion"].str.split(",").explode().str.strip()
+    paises = paises[paises != "Sin datos"]
+    if paises.empty:
+        return _fig_vacia("Región de las instituciones", compacto)
+    regiones = paises.map(PAIS_REGION).fillna("Otro")
+    return _chart_barras_h(regiones, "Región de las instituciones", compacto)
 
 
 def chart_institucion(df, compacto=False):
@@ -900,6 +934,7 @@ def _generar_graficos(df, compacto=False):
         chart_genero(df, compacto),
         chart_region(df, compacto),
         chart_region_instituciones(df, compacto),
+        chart_region_inst(df, compacto),
         chart_institucion(df, compacto),
         chart_disciplina(df, compacto),
     )
@@ -1155,13 +1190,17 @@ def crear_dashboard():
 
                 with gr.Row():
                     with gr.Column():
+                        plot_region_inst_reg = gr.Plot(label="Región instituciones")
+                    with gr.Column():
                         plot_institucion = gr.Plot(label="Instituciones")
+
+                with gr.Row():
                     with gr.Column():
                         plot_disciplina = gr.Plot(label="Disciplina")
 
                 dash_outputs = [
                     plot_epocas, plot_genero, plot_region, plot_region_inst,
-                    plot_institucion, plot_disciplina,
+                    plot_region_inst_reg, plot_institucion, plot_disciplina,
                     resumen_md, filtro_materias,
                 ]
                 dash_inputs = [filtro_carrera, filtro_anio, filtro_materias]
@@ -1194,6 +1233,7 @@ def crear_dashboard():
                         comp_genero_a = gr.Plot()
                         comp_region_a = gr.Plot()
                         comp_region_inst_a = gr.Plot()
+                        comp_region_inst_reg_a = gr.Plot()
                         comp_inst_a = gr.Plot()
                         comp_disc_a = gr.Plot()
 
@@ -1217,6 +1257,7 @@ def crear_dashboard():
                         comp_genero_b = gr.Plot()
                         comp_region_b = gr.Plot()
                         comp_region_inst_b = gr.Plot()
+                        comp_region_inst_reg_b = gr.Plot()
                         comp_inst_b = gr.Plot()
                         comp_disc_b = gr.Plot()
 
@@ -1226,10 +1267,12 @@ def crear_dashboard():
                 ]
                 comp_outputs = [
                     comp_epocas_a, comp_genero_a, comp_region_a,
-                    comp_region_inst_a, comp_inst_a, comp_disc_a,
+                    comp_region_inst_a, comp_region_inst_reg_a,
+                    comp_inst_a, comp_disc_a,
                     comp_resumen_a, comp_materias_a,
                     comp_epocas_b, comp_genero_b, comp_region_b,
-                    comp_region_inst_b, comp_inst_b, comp_disc_b,
+                    comp_region_inst_b, comp_region_inst_reg_b,
+                    comp_inst_b, comp_disc_b,
                     comp_resumen_b, comp_materias_b,
                 ]
 
