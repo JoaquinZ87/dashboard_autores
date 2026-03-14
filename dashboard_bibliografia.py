@@ -463,7 +463,8 @@ def _chart_barras_h_dual(series_a, series_b, titulo, label_a, label_b,
                                  {"xaxis.range": [0, max_b * 1.35]}]),
                   ],
                   bgcolor="#E8EAF6",
-                  activecolor="#2196F3",
+                  bordercolor="#2196F3",
+                  showactive=True,
                   font=dict(size=11, color="#333"),
               )]}
     if compacto:
