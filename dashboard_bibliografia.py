@@ -185,20 +185,33 @@ def construir_tabla_expandida():
     df["año_grafico"] = df["Año_original"].fillna(df["Año_pub"])
     df["año_grafico"] = pd.to_numeric(df["año_grafico"], errors="coerce")
 
+    import unicodedata
+
+    def _normalize(s):
+        """Quita acentos, diéresis y guiones para matching robusto."""
+        s = str(s).strip().lower()
+        s = unicodedata.normalize("NFD", s)
+        s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+        s = s.replace("-", " ").replace("\u2019", "'").replace("\u2018", "'")
+        return s
+
     df["autor_lista"] = df["Autores"].str.split(", ")
     df = df.explode("autor_lista")
     df["autor_lc"] = df["autor_lista"].str.strip().str.lower()
+    df["_autor_norm"] = df["autor_lc"].apply(_normalize)
 
     meta_j = metadatos.copy()
     meta_j["autor_lc"] = meta_j["nombre_autor"].str.strip().str.lower()
-    meta_j = meta_j.drop_duplicates(subset=["autor_lc"])
+    meta_j["_autor_norm"] = meta_j["autor_lc"].apply(_normalize)
+    meta_j = meta_j.drop_duplicates(subset=["_autor_norm"])
 
-    meta_cols = ["autor_lc", "genero", "region", "pais_nacimiento", "disciplina", "institucion"]
+    meta_cols = ["_autor_norm", "genero", "region", "pais_nacimiento", "disciplina", "institucion"]
     if "pais_institucion" in meta_j.columns:
         meta_cols.append("pais_institucion")
     meta_cols = [c for c in meta_cols if c in meta_j.columns]
 
-    df = df.merge(meta_j[meta_cols], on="autor_lc", how="left")
+    df = df.merge(meta_j[meta_cols], on="_autor_norm", how="left")
+    df.drop(columns=["_autor_norm"], inplace=True)
 
     for col in ["genero", "region", "pais_nacimiento", "disciplina", "institucion"]:
         if col in df.columns:
